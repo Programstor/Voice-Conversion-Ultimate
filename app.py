@@ -363,6 +363,21 @@ class VCU_GUI(QMainWindow):
         btnSequence = QPushButton("Sequence")
         update_state(btnSequence, "state", "active")
         btnSequence.setStyleSheet("font-weight: bold")
+        btnSequence.clicked.connect(
+            lambda: self.task_manager.run_task(
+                btnSequence,
+                self.lblStatus,
+                self.modules.sequence,
+                ### Arguments ###
+                mo_name=txtName.text(),
+                ds_path=txtFolder.text(),
+                tgt_sr=selected_sr(),
+                epochs=sldEpochs.value(),
+                frequency=sldFrequency.value(),
+                batch=sldBatch.value(),
+                chart=self.chartBridge
+            )
+        )
 
         ## Master Layout
         page = QWidget()

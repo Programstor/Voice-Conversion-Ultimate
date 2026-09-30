@@ -1,7 +1,6 @@
 /.vscode
 /assets/pretrained_old
 /assets/pretrained_v2
-/assets/pretrained
 /bin/__pycache__
 /config/__pycache__
 /lib/audio/__pycache__
@@ -10,4 +9,3 @@
 /runtime
 /runtime_linux
 /user
-README.md

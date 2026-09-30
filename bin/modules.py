@@ -519,10 +519,17 @@ class Modules:
                 step_engine._step_count = int(data.get("steps", 0)) * tcfg.grad_acc
             else:
                 say("Loading pretrains...")
-                for net, fname, label in ((net_g, profile.pretrained_g, "generator"), (net_d, profile.pretrained_d, "discriminator")):
-                    path = self.paths.pretrained / fname
-                    if not path.is_file():
-                        raise FileNotFoundError(f"Error loading {label} from {path}")
+                for net, kind, label in ((net_g, "g", "generator"), (net_d, "d", "discriminator")):
+                    candidates = [
+                        self.paths.pretrained / getattr(profile, f"titan_{kind}"),
+                        self.paths.pretrained / getattr(profile, f"pretrained_{kind}"),
+                    ]
+                    path = next((p for p in candidates if p.is_file()), None)
+                    if path is None:
+                        raise FileNotFoundError(
+                            f"No pretrained {label} found for {profile.sr} Hz. Tried:\n"
+                            + "\n".join(f"  {p}" for p in candidates)
+                        )
                     state = load_checkpoint(path, dev)
                     state = {k.replace("module.", "", 1): v for k, v in state.get("model", state).items()}
                     load_state_logged(net, state, f"pretrained {label}", raise_unexpected=True)
@@ -866,3 +873,63 @@ class Modules:
         index_path.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(index, str(index_path))
         say(4, f"Saved index ({n} vectors, IVF{n_cells}, nprobe={nprobe}) to: {index_path}")
+
+    # ------------------------------------------------------------------ training sequence
+    @keep_awake
+    def sequence(self, mo_name, ds_path, tgt_sr, epochs, frequency, batch, chart,
+                progress_callback=None, stop_check=None):
+        """Run preprocess -> train -> index in sequence, skipping stages already complete."""
+        say = lambda i, n, msg: progress_callback(i, n, msg) if progress_callback else None
+        mo_name = _require_model_name(mo_name)
+        run_dir = self.paths.training_run(mo_name)
+
+        # ── Stage detection ───────────────────────────────────────────────────────
+        def _preprocessed() -> bool:
+            return all(
+                (run_dir / sub).is_dir() and any((run_dir / sub).iterdir())
+                for sub in ("gt_wavs", "features", "f0", "f0_coarse")
+            )
+
+        def _trained() -> bool:
+            completed = max(
+                (int(m.group(1)) for p in run_dir.glob("ckpt_*.pt*")
+                if (m := re.search(r"ckpt_(\d+)", p.stem))),
+                default=0
+            )
+            return completed >= epochs
+
+        def _indexed() -> bool:
+            return any(self.paths.indices.glob(f"*{mo_name}*.index"))
+
+        # ── Stage 1: Preprocess ───────────────────────────────────────────────────
+        if _preprocessed():
+            say(0, 3, "Stage 1/3: Preprocessing already done, skipping...")
+        else:
+            say(0, 3, "Stage 1/3: Preprocessing dataset...")
+            self.preprocess_dataset(mo_name, ds_path, tgt_sr,
+                                    progress_callback=progress_callback,
+                                    stop_check=stop_check)
+            if stop_check and stop_check():
+                return
+
+        # ── Stage 2: Train ────────────────────────────────────────────────────────
+        if _trained():
+            say(1, 3, "Stage 2/3: Model already trained, skipping...")
+        else:
+            say(1, 3, "Stage 2/3: Training model...")
+            self.train_model(mo_name, epochs, frequency, batch, chart,
+                            progress_callback=progress_callback,
+                            stop_check=stop_check)
+            if stop_check and stop_check():
+                return
+
+        # ── Stage 3: Index ────────────────────────────────────────────────────────
+        if _indexed():
+            say(2, 3, "Stage 3/3: Index already built, skipping...")
+        else:
+            say(2, 3, "Stage 3/3: Building index...")
+            self.train_index(mo_name,
+                            progress_callback=progress_callback,
+                            stop_check=stop_check)
+
+        say(3, 3, "Sequence complete!")

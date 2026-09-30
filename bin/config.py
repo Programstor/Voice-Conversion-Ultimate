@@ -160,6 +160,10 @@ class SRProfile:
     def pretrained_g(self) -> str:  return f"f0G{self.sr // 1000}k.pth"
     @property
     def pretrained_d(self) -> str:  return f"f0D{self.sr // 1000}k.pth"
+    @property
+    def titan_g(self) -> str: return f"G-f0{self.sr // 1000}k-TITAN-Medium.pth"
+    @property
+    def titan_d(self) -> str: return f"D-f0{self.sr // 1000}k-TITAN-Medium.pth"
 
     def model_kwargs(self, *, p_dropout: float = 0.0, is_half: bool = False) -> dict:
         """Keyword arguments for SynthesizerTrnMs768NSFsid"""
