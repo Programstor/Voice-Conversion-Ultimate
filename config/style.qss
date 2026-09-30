@@ -1,0 +1,674 @@
+/*
+THEME: Nvidia Green
+VAR_ACCENT: #77b900
+VAR_BACCENT: #88d400
+VAR_DACCENT: #629900
+VAR_BACKGROUND: #2d2d2d
+VAR_BBACKGROUND: #3e3e3e
+VAR_DBACKGROUND: #1e1e1e
+VAR_TEXT: #ffffff
+
+THEME: AMD Red
+VAR_ACCENT: #ae1319
+VAR_BACCENT: #e31b23
+VAR_DACCENT: #8d0f13
+VAR_BACKGROUND: #2d2d2d
+VAR_BBACKGROUND: #3e3e3e
+VAR_DBACKGROUND: #1e1e1e
+VAR_TEXT: #ffffff
+
+THEME: Intel Blue
+VAR_ACCENT: #ababab
+VAR_BACCENT: #cccccc
+VAR_DACCENT: #8f8f8f
+VAR_BACKGROUND: #0071c5
+VAR_BBACKGROUND: #0092ff
+VAR_DBACKGROUND: #0063ad
+VAR_TEXT: #ffffff
+*/
+
+QMainWindow {
+    background-color: VAR_DACCENT;
+    color: VAR_TEXT;
+}
+
+QTabWidget::pane {
+    border: 1px solid VAR_BBACKGROUND;
+    background: VAR_BACKGROUND;
+    border-radius: 10px;
+    border-top-left-radius: 0px;
+    top: -1px;
+}
+
+QWidget {
+    font-size: 16px;
+    color: VAR_TEXT;
+}
+
+/* ── Tab selector ── */
+QTabBar::tab {
+    background: VAR_DBACKGROUND;
+    color: VAR_BBACKGROUND;
+    padding: 10px 20px;
+    font-weight: bold;
+    font-size: 24px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    margin-right: 2px;
+    border: 1px solid VAR_BBACKGROUND;
+    border-bottom: none;
+}
+
+QTabBar::tab:selected {
+    background: VAR_BACKGROUND;
+    color: VAR_TEXT;
+    border-top: 3px solid VAR_ACCENT;
+    padding-bottom: 11px;
+}
+
+QTabBar::tab:hover:!selected {
+    background: VAR_BACKGROUND;
+    border-color: VAR_BBACKGROUND;
+    color: VAR_TEXT;
+}
+
+/* ── Panel ── */
+QGroupBox {
+    border: 1px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    margin-top: 25px;
+    font-weight: bold;
+    font-size: 20px;
+    color: VAR_ACCENT;
+    background-color: VAR_DBACKGROUND;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 0 10px;
+}
+
+/* ── Label ── */
+QLabel {
+    color: VAR_TEXT;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+QLabel[state="success"] { color: VAR_DACCENT; }
+QLabel[state="error"]   { color: #ff4444; font-weight: bold; }
+
+/* ── Text field ── */
+QLineEdit {
+    background: VAR_BACKGROUND;
+    color: VAR_TEXT;
+    border: 2px solid VAR_BBACKGROUND;
+    padding: 8px;
+    border-radius: 4px;
+    selection-background-color: VAR_ACCENT;
+    selection-color: VAR_TEXT;
+}
+
+QLineEdit:hover {
+    background: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+/* ── Button ── */
+QPushButton {
+    background-color: VAR_BACKGROUND;
+    color: VAR_TEXT;
+    padding: 10px;
+    border-radius: 4px;
+    border: 2px solid VAR_BBACKGROUND;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+QPushButton:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+QPushButton[state="active"] {
+    background-color: VAR_DACCENT;
+    color: VAR_TEXT;
+    border: 2px solid VAR_ACCENT;
+}
+
+QPushButton[state="active"]:hover {
+    background-color: VAR_ACCENT;
+    border-color: VAR_TEXT;
+}
+
+QPushButton[state="pressed"] {
+    background-color: #e62d2d;
+    color: #000000;
+    border: 2px solid VAR_TEXT;
+}
+
+QPushButton[state="pressed"]:hover {
+    background-color: #f34d4d;
+    border-color: VAR_TEXT;
+}
+
+QPushButton[state="disabled"] {
+    background-color: VAR_BACKGROUND;
+    color: VAR_BBACKGROUND;
+    border: 1px solid VAR_BBACKGROUND;
+}
+
+/* ── Slider ── */
+QSlider:horizontal {
+    height: 40px;
+    background: transparent;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid VAR_BBACKGROUND;
+    height: 6px;
+    background: VAR_DBACKGROUND;
+    margin: 15px 0;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: VAR_ACCENT;
+    border: 2px solid VAR_TEXT;
+    width: 16px;
+    height: 16px;
+    margin: -7px 0;
+    border-radius: 9px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: VAR_BACCENT;
+    border: 2px solid VAR_TEXT;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0;
+    border-radius: 12px;
+}
+
+QSlider::sub-page:horizontal {
+    background: VAR_DACCENT;
+    border-radius: 3px;
+    margin: 15px 0;
+}
+
+QSlider::add-page:horizontal {
+    background: VAR_BACKGROUND;
+    border-radius: 3px;
+    margin: 15px 0;
+}
+
+/* ── ComboBox ── */
+QComboBox {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 8px;
+    padding: 5px 10px;
+    color: VAR_TEXT;
+    combobox-popup: 0;
+}
+
+QComboBox:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 2px solid VAR_BBACKGROUND;
+}
+
+QComboBox::down-arrow {
+    image: url(config/arrow_down.svg);
+    width: 12px;
+    height: 8px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: VAR_DBACKGROUND;
+    border: 2px solid VAR_ACCENT;
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+
+QComboBox QAbstractItemView::item {
+    min-height: 30px;
+    padding: 2px 10px;
+    color: VAR_TEXT;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-color: transparent;
+}
+
+QComboBox QAbstractItemView::item:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: VAR_BBACKGROUND;
+    color: VAR_TEXT;
+    border: 2px solid VAR_TEXT;
+}
+
+/* ── CheckBox ── */
+QCheckBox {
+    min-height: 30px;
+    spacing: 10px;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 2px solid VAR_BBACKGROUND;
+    background-color: VAR_BACKGROUND;
+}
+
+QCheckBox::indicator:!checked:hover {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    border: 2px solid VAR_TEXT;
+    background-color: VAR_BBACKGROUND;
+}
+
+QCheckBox::indicator:checked {
+    background-color: VAR_ACCENT;
+    border: 2px solid VAR_TEXT;
+}
+
+QCheckBox::indicator:checked:hover {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background-color: VAR_BACCENT;
+}
+
+/* ── RadioButton ── */
+QRadioButton {
+    min-height: 30px;
+    spacing: 10px;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 9px;
+    border: 2px solid VAR_BBACKGROUND;
+    background-color: VAR_BACKGROUND;
+}
+
+QRadioButton::indicator:!checked:hover {
+    width: 20px;
+    height: 20px;
+    border-radius: 11px;
+    border: 2px solid VAR_TEXT;
+    background-color: VAR_BBACKGROUND;
+}
+
+QRadioButton::indicator:checked {
+    background-color: VAR_ACCENT;
+    border: 2px solid VAR_TEXT;
+}
+
+QRadioButton::indicator:checked:hover {
+    width: 20px;
+    height: 20px;
+    border-radius: 11px;
+    background-color: VAR_BACCENT;
+}
+
+/* ════════════════════════════════════════════════
+   FILE DIALOG  —  unified, no duplicates
+   ════════════════════════════════════════════════ */
+
+QDialog,
+QFileDialog {
+    background-color: VAR_DACCENT;
+    color: VAR_TEXT;
+}
+
+/* Labels inside dialogs — lighter weight than main UI */
+QDialog QLabel,
+QFileDialog QLabel {
+    font-size: 15px;
+    font-weight: normal;
+    color: VAR_TEXT;
+}
+
+/* Dialog buttons — match ComboBox item hover feel */
+QDialog QPushButton,
+QFileDialog QPushButton {
+    font-size: 15px;
+    font-weight: bold;
+    padding: 6px 16px;
+    min-width: 80px;
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    color: VAR_TEXT;
+}
+
+QDialog QPushButton:hover,
+QFileDialog QPushButton:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+QDialog QPushButton:pressed,
+QFileDialog QPushButton:pressed {
+    background-color: VAR_ACCENT;
+    border-color: VAR_TEXT;
+    color: #000000;
+}
+
+/* Filename / path bar */
+QDialog QLineEdit,
+QFileDialog QLineEdit {
+    background: VAR_BACKGROUND;
+    color: VAR_TEXT;
+    border: 2px solid VAR_BBACKGROUND;
+    padding: 4px 8px;
+    border-radius: 6px;
+    selection-background-color: VAR_ACCENT;
+    selection-color: VAR_TEXT;
+}
+
+QDialog QLineEdit:hover,
+QFileDialog QLineEdit:hover {
+    background: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+/* Filter / type ComboBox inside the dialog */
+QDialog QComboBox,
+QFileDialog QComboBox {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: VAR_TEXT;
+    combobox-popup: 0;
+}
+
+QDialog QComboBox:hover,
+QFileDialog QComboBox:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+QDialog QComboBox QAbstractItemView,
+QFileDialog QComboBox QAbstractItemView {
+    background-color: VAR_DBACKGROUND;
+    border: 2px solid VAR_ACCENT;
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+    color: VAR_TEXT;
+}
+
+QDialog QComboBox QAbstractItemView::item,
+QFileDialog QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 2px 10px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-color: transparent;
+    color: VAR_TEXT;
+}
+
+QDialog QComboBox QAbstractItemView::item:hover,
+QFileDialog QComboBox QAbstractItemView::item:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: VAR_TEXT;
+}
+
+QDialog QComboBox QAbstractItemView::item:selected,
+QFileDialog QComboBox QAbstractItemView::item:selected {
+    background-color: VAR_BBACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+/* ── File / directory list & tree ── */
+QAbstractItemView,
+QTreeView,
+QListView,
+QTableView {
+    background-color: VAR_BACKGROUND;
+    alternate-background-color: VAR_DBACKGROUND;
+    color: VAR_TEXT;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    padding: 2px;
+    outline: none;
+    gridline-color: VAR_BBACKGROUND;
+}
+
+QAbstractItemView::item {
+    padding: 5px 6px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+}
+
+QAbstractItemView::item:hover {
+    background-color: VAR_BBACKGROUND;
+    border-color: transparent;
+    color: VAR_TEXT;
+}
+
+/* Selected row — same bordered style as ComboBox selected item */
+QAbstractItemView::item:selected {
+    background-color: VAR_BBACKGROUND;
+    border: 2px solid VAR_ACCENT;
+    color: VAR_TEXT;
+    font-weight: bold;
+}
+
+/* ── Column header (Name / Size / Date Modified) ── */
+QHeaderView::section {
+    background-color: VAR_BACKGROUND;
+    color: VAR_TEXT;
+    font-weight: bold;
+    font-size: 14px;
+    border: none;
+    border-right: 1px solid VAR_BBACKGROUND;
+    padding: 6px 8px;
+}
+
+QHeaderView::section:hover {
+    background-color: VAR_BBACKGROUND;
+}
+
+/* ── Toolbar (Back / Forward / Up / New Folder icons) ── */
+QToolBar {
+    background: VAR_BACKGROUND;
+    border: none;
+    spacing: 4px;
+    padding: 2px;
+}
+
+/* White background so dark system icons are always visible */
+QToolButton {
+    background-color: VAR_DACCENT;
+    color: #000000;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+QToolButton:hover {
+    background-color: VAR_BACCENT;
+    border-color: VAR_TEXT;
+}
+
+QToolButton:checked,
+QToolButton:pressed {
+    background-color: VAR_ACCENT;
+    border-color: VAR_TEXT;
+}
+
+/* ── File dialog sidebar / places panel (PyQt6) ──
+   Qt6 exposes the sidebar as a plain QListView; we let the
+   accent dialog background show through by making it transparent,
+   and style only the items so they read cleanly against it.      */
+QFileDialog QListView {
+    background-color: VAR_BACKGROUND;
+    border-radius: 6px;
+    border: 2px solid VAR_BBACKGROUND;
+}
+
+QFileDialog QListView::item {
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    color: VAR_TEXT;
+    font-weight: bold;
+}
+
+QFileDialog QListView::item:hover {
+    background-color: VAR_BBACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+QFileDialog QListView::item:selected {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+/* ── File Dialog Detail View (QTreeView) matching QListView ── */
+QFileDialog QTreeView {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    outline: none;
+}
+
+QFileDialog QTreeView::item {
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    color: VAR_TEXT;
+    font-weight: bold;
+}
+
+/* Hover state matching QListView */
+QFileDialog QTreeView::item:hover {
+    background-color: VAR_BBACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+/* Selected state matching QListView */
+QFileDialog QTreeView::item:selected {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+/* Keep the container rule intact inside QStackedWidget */
+QFileDialog QStackedWidget QListView,
+QFileDialog QStackedWidget QTreeView {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+}
+
+/* ── ScrollBar ── */
+QScrollBar:vertical {
+    background: VAR_BACKGROUND;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar:horizontal {
+    background: VAR_BACKGROUND;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background: VAR_BBACKGROUND;
+    border-radius: 4px;
+    margin: 2px;
+    min-height: 24px;
+    min-width: 24px;
+}
+
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {
+    background: VAR_ACCENT;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line,
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+    width: 0;
+    height: 0;
+}
+
+/* ── Menus ── */
+QMenuBar {
+    background-color: VAR_BBACKGROUND;
+    color: VAR_TEXT;
+}
+
+QMenuBar::item:selected {
+    background: VAR_BBACKGROUND;
+    border-radius: 4px;
+}
+
+QMenu {
+    background-color: VAR_BACKGROUND;
+    border: 2px solid VAR_BBACKGROUND;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 20px;
+    border-radius: 3px;
+    color: VAR_TEXT;
+}
+
+QMenu::item:selected {
+    background-color: VAR_BBACKGROUND;
+    border: 2px solid VAR_TEXT;
+    color: VAR_TEXT;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: VAR_BBACKGROUND;
+    margin: 4px 8px;
+}
+
+/* ── Tooltip ── */
+QToolTip {
+    background-color: VAR_DBACKGROUND;
+    color: VAR_TEXT;
+    border: 2px solid VAR_ACCENT;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 14px;
+    font-weight: normal;
+    opacity: 230;
+}

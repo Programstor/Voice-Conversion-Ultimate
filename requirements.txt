@@ -1,0 +1,30 @@
+# Voice Conversion Ultimate- runtime requirements (Linux + Windows, Python 3.12)
+#
+# Installed by setup_linux.sh / setup_win.bat with:
+#     uv pip install --torch-backend <cu130|cu126|cpu|...> -r requirements.txt
+# torch and torchaudio come from the PyTorch index that --torch-backend selects, so do NOT
+# pin local versions such as "torch==2.x+cu130" here.
+
+# --- deep learning ---
+torch
+torchaudio
+transformers          # ContentVec (HubertModel)
+torchfcpe             # FCPE pitch extractor
+
+# --- retrieval index ---
+faiss-cpu
+
+# --- audio ---
+numpy
+scipy
+librosa
+soundfile
+sounddevice
+
+# --- GUI ---
+PyQt6
+pyqtgraph
+
+# --- optional ---
+wakepy                # prevents the system from sleeping during processes
+psutil                # extra RAM info in the session log header (log.py)
