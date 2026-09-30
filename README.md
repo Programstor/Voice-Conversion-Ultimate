@@ -10,9 +10,9 @@
   <a href="#about">About</a> &#xa0; | &#xa0;
   <a href="#requirements">Requirements</a> &#xa0; | &#xa0;
   <a href="#setup">Setup</a> &#xa0; | &#xa0;
-  <a href="#tabs">App Guide</a> &#xa0; | &#xa0;
+  <a href="#app-guide">App Guide</a> &#xa0; | &#xa0;
   <a href="#config">Config</a> &#xa0; | &#xa0;
-  <a href="#todo">To Do</a> &#xa0; | &#xa0;
+  <a href="#to-do">To Do</a> &#xa0; | &#xa0;
   <a href="#license">License</a> &#xa0; | &#xa0;
   <a href="https://github.com/Programstor" target="_blank">Author</a>
 </p>
