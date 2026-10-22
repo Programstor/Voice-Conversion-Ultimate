@@ -119,7 +119,8 @@ class TaskManager(QObject):
     def cleanup(self) -> None:
         w, self.worker = self.worker, None
         if w:
-            # w.wait() produces unwanted hang ups in the audio pipeline
+            if not w.isFinished():
+                w.wait(100)   # short grace period for non-realtime tasks only
             w.deleteLater()
         btn = self.active_button
         if self.overlay:

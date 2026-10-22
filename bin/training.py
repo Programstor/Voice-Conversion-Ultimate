@@ -125,6 +125,17 @@ def resolve_amp_dtype(device: torch.device, amp: str):
 
         return None
 
+    if device.type == "mps":
+        # MPS supports bfloat16 on Apple Silicon (M2 and newer via PyTorch MPS).
+        # float16 + GradScaler is not supported on MPS; fall back to fp32 for fp16 requests.
+        if amp in ("bf16", "auto"):
+            return torch.bfloat16
+        if amp == "fp16":
+            log.warning(
+                "MPS FP16 + GradScaler is not supported; using FP32."
+            )
+        return None
+
     if device.type != "cuda":
         return None
 
@@ -151,7 +162,16 @@ def configure_cpu_runtime(cfg) -> None:
     Physical cores are preferred over logical SMT threads because the RVC
     workload is already heavily vectorized/parallelized internally.
     """
-    requested = int(getattr(cfg, "cpu_threads", 0) or 0)
+    raw_requested = getattr(cfg, "cpu_threads", "auto")
+
+    # Handle "auto", None, or empty values as automatic physical core detection
+    if raw_requested is None or str(raw_requested).strip().lower() in ("auto", "", "0"):
+        requested = 0
+    else:
+        try:
+            requested = int(raw_requested)
+        except (ValueError, TypeError):
+            requested = 0
 
     physical = 0
     try:
@@ -193,59 +213,86 @@ def configure_cpu_runtime(cfg) -> None:
         logical,
     )
 
+def _compiler_available() -> bool:
+    """Detect a C++ compiler that TorchInductor can use on this platform.
 
-def compile_cpu_training_models(net_g, net_d, cfg, device: torch.device):
+    Windows: MSVC cl.exe, configured via vcvars64.bat by the launcher.
+    Linux/macOS: g++ or c++ from build-essential / Xcode CLT.
+    clang-cl is intentionally not used on Windows: it miscompiles TorchInductor's
+    microGEMM templates and produces DLL load errors at runtime.
     """
-    Compile only the neural-network forward paths.
+    import shutil, platform
+    if platform.system() == "Windows":
+        return shutil.which("cl") is not None
+    return shutil.which("g++") is not None or shutil.which("c++") is not None
 
-    We deliberately compile .forward rather than replacing the entire Module.
-    That keeps:
-      - state_dict keys stable
-      - net_g.infer() available
-      - checkpoint save/load behavior sane
-
-    dynamic=None lets TorchDynamo specialize first and automatically generalize
-    when bucket sequence lengths vary.
+def compile_training_models(net_g, net_d, cfg, device: torch.device):
     """
+    Apply TorchInductor compilation to the training forward passes.
+
+    CPU only. CUDA and MPS are left in eager mode — Inductor on CUDA requires
+    either Triton (unavailable on Windows as a standard package) or falls back
+    to a C++ partition that needs cl.exe/g++ to be on PATH inside the process.
+    Neither is a reliable assumption for end users. CUDA training is already
+    fast without compilation; the compile overhead and failure surface are not
+    worth it. CPU training benefits meaningfully from loop tiling and
+    vectorization, so compilation is kept there.
+
+    Compiles .forward rather than the whole Module to keep state_dict keys
+    stable, checkpoint save/load sane, and net_g.infer() available.
+
+    dynamic=True is Windows-only.  On Linux/macOS, DiscriminatorP's period-N
+    reshape produces stride expressions of the form
+        7*(((s48 - Mod(s48, 7)) // 7)) + 7
+    and when dynamic shapes are enabled the Inductor SymPy argsort comparator
+    hits "cannot determine truth value of Relational" because it tries to call
+    bool() on an unresolved symbolic inequality.  Windows takes a different
+    codegen branch (MSVC cl.exe path) that doesn't reach that comparator.
+    With dynamic=False Inductor specialises on the first-seen shapes and
+    retraces on shape changes, which is fine for the fixed segment-size batches
+    used here.
+    """
+    import platform
+
     if device.type != "cpu":
         return net_g, net_d
 
-    if not bool(getattr(cfg, "cpu_compile", True)):
-        log.info("CPU torch.compile disabled by configuration.")
+    if not _compiler_available():
+        log.info("CPU torch.compile skipped: no C++ compiler found.")
         return net_g, net_d
 
     if not hasattr(torch, "compile"):
-        log.warning("This PyTorch build has no torch.compile(); using eager CPU.")
+        log.warning("This PyTorch build has no torch.compile(); using eager execution.")
         return net_g, net_d
 
-    mode = str(getattr(cfg, "cpu_compile_mode", "max-autotune"))
+    if not bool(getattr(cfg, "cpu_compile", True)):
+        log.info("CPU torch.compile disabled by configuration (cpu_compile=False).")
+        return net_g, net_d
+
+    mode = str(getattr(cfg, "cpu_compile_mode", "reduce-overhead"))
+    # dynamic=True currently doesnt work on Windows (MSVC codegen path)or on Linux/macOS;
+    # the SymPy stride comparator crashes on period-N discriminator strides.
+    dynamic = False
 
     try:
-        net_g.forward = torch.compile(
-            net_g.forward,
-            backend="inductor",
-            mode=mode,
-            dynamic=False,   # specialize on first shape; re-compile on bucket changes
-        )
-
-        net_d.forward = torch.compile(
-            net_d.forward,
-            backend="inductor",
-            mode=mode,
-            dynamic=False,
-        )
+        net_g.forward = torch.compile(net_g.forward, backend="inductor", mode=mode, dynamic=dynamic)
+        net_d.forward = torch.compile(net_d.forward, backend="inductor", mode=mode, dynamic=dynamic)
 
         log.info(
-            "CPU TorchInductor enabled for G/D: mode=%s dynamic=False",
+            "CPU TorchInductor registered for G/D: mode=%s dynamic=%s "
+            "(compilation deferred to first forward pass)",
             mode,
+            dynamic,
         )
 
     except Exception as exc:
         log.warning(
-            "CPU torch.compile could not be enabled; "
-            "falling back to eager execution: %s",
-            exc,
+            "CPU torch.compile setup failed; discarding compiled wrappers and "
+            "falling back to eager execution: %s", exc,
         )
+        net_g.forward = net_g.__class__.forward.__get__(net_g)
+        net_d.forward = net_d.__class__.forward.__get__(net_d)
+        torch._dynamo.reset()
 
     return net_g, net_d
 
@@ -267,19 +314,16 @@ class TrainStep:
         # ---- mixed precision: bf16 needs no loss scaling; fp16 keeps a GradScaler -----------
         self.amp_dtype = resolve_amp_dtype(device, cfg.amp)
 
+        # GradScaler is only meaningful for CUDA fp16; MPS uses bf16 (no scaling needed)
+        # and CPU uses fp32. Passing the wrong device string to GradScaler raises on
+        # some PyTorch versions, so we keep it as "cuda" but disabled for non-CUDA paths.
         use_scaler = (
             device.type == "cuda"
             and self.amp_dtype == torch.float16
         )
 
-        self.scaler_g = GradScaler(
-            "cuda",
-            enabled=use_scaler,
-        )
-        self.scaler_d = GradScaler(
-            "cuda",
-            enabled=use_scaler,
-        )
+        self.scaler_g = GradScaler("cuda", enabled=use_scaler)
+        self.scaler_d = GradScaler("cuda", enabled=use_scaler)
 
         precision_name = {
             None: "fp32",
@@ -409,8 +453,13 @@ class TrainStep:
         n_frames = max(1, n_samples // self.hop)
         wav = self.slice_segments(wav_raw, ids_slice * self.hop, n_samples)
 
+        # Detach explicitly before the D step so the compiled net_d always
+        # receives a clean leaf tensor (no live autograd graph attached).
+        # y_hat itself is kept intact for the G step below.
+        y_hat_d = y_hat.detach()
+
         with self._autocast():
-            d_r, d_g, _, _ = self.net_d(wav, y_hat.detach())
+            d_r, d_g, _, _ = self.net_d(wav, y_hat_d)
             loss_d = self.discriminator_loss(d_r, d_g)
 
         t2 = time.perf_counter()
@@ -1107,7 +1156,19 @@ class RVCCollate:
         )
 
         b = len(batch)
-        max_frames = int(lengths.max().item())
+        _raw_max = int(lengths.max().item())
+
+        # Snap max_frames to the nearest multiple of COMPILE_BUCKET_SIZE so that
+        # torch.compile (dynamic=False) sees a small fixed set of T-dimension values
+        # rather than a distinct shape for every batch. Without this, every batch
+        # whose longest item differs by even one frame triggers a full recompilation.
+        # 64 frames (~640 ms at 100 Hz) gives ≤6% padding waste while keeping the
+        # number of distinct compiled shapes to ~8 for typical 30-s max lengths.
+        COMPILE_BUCKET_SIZE = 64
+        max_frames = ((_raw_max + COMPILE_BUCKET_SIZE - 1) // COMPILE_BUCKET_SIZE) * COMPILE_BUCKET_SIZE
+        # Hard cap: never exceed the dataset's own max_frames ceiling.
+        if self.max_frames:
+            max_frames = min(max_frames, self.max_frames)
 
         phone_dtype = batch[0][0].dtype
 

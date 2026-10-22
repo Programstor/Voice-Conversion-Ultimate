@@ -1,4 +1,5 @@
 import os
+import threading
 import numpy as np
 from lib.audio.audio_io import load_audio_playback
 import sounddevice as sd
@@ -34,6 +35,8 @@ class AudioPlayer(QWidget):
         self._stream = None
         self._volume = 0.5
         self._channels = 1
+        self._resume_after_seek = False
+        self._position_lock = threading.Lock()
 
         self.init_ui()
 
@@ -99,21 +102,27 @@ class AudioPlayer(QWidget):
             self.update_position(pos_ms)
 
     def _audio_callback(self, outdata, frames, time, status):
-        if not self._is_playing or self._audio_data is None:
-            outdata.fill(0)
-            return
+        with self._position_lock:
+            if not self._is_playing or self._audio_data is None:
+                outdata.fill(0)
+                return
 
-        chunk_size = min(frames, self._total_frames - self._current_frame)
+            start_frame = self._current_frame
+            remaining = self._total_frames - start_frame
+            chunk_size = min(frames, max(0, remaining))
+
         if chunk_size == 0:
             outdata.fill(0)
             return
 
-        outdata[:chunk_size] = self._audio_data[self._current_frame : self._current_frame + chunk_size] * self._volume
-        
+        outdata[:chunk_size] = (
+            self._audio_data[start_frame:start_frame + chunk_size] * self._volume
+        )
         if chunk_size < frames:
             outdata[chunk_size:].fill(0)
 
-        self._current_frame += chunk_size
+        with self._position_lock:
+            self._current_frame = start_frame + chunk_size
 
     def format_time(self, ms):
         seconds = (ms // 1000) % 60
@@ -245,32 +254,69 @@ class AudioPlayer(QWidget):
 
     def toggle_playback(self):
         if self._is_playing:
-            self._is_playing = False
+            with self._position_lock:
+                self._is_playing = False
             if self._stream is not None:
                 self._stream.stop()
             self._timer.stop()
             update_state(self.btnPlay, "state", "active")
-        else:
+            return
+
+        with self._position_lock:
             if self._current_frame >= self._total_frames:
                 self._current_frame = 0
-            self._open_stream()          # lazy: device claimed only when Play is pressed
             self._is_playing = True
-            if self._stream is not None:
-                self._stream.start()
-            self._timer.start()
-            update_state(self.btnPlay, "state", "pressed")
+
+        self._open_stream()
+        if self._stream is not None:
+            self._stream.start()
+        self._timer.start()
+        update_state(self.btnPlay, "state", "pressed")
 
     def handle_slider_pressed(self):
         self.is_sliding = True
+
+        # A seek must flush PortAudio's already-buffered samples.
+        # Changing _current_frame alone cannot remove old audio already queued
+        # for the output device, which causes the brief old-position replay.
+        with self._position_lock:
+            self._resume_after_seek = self._is_playing
+            was_playing = self._is_playing
+            if was_playing:
+                self._is_playing = False
+
+        if was_playing and self._stream is not None:
+            try:
+                self._stream.abort()
+            except Exception:
+                pass
 
     def handle_slider_released(self):
         self.is_sliding = False
         self.handle_seek(self.sldProgress.value())
 
+        with self._position_lock:
+            resume = self._resume_after_seek
+            self._resume_after_seek = False
+            if resume:
+                self._is_playing = True
+
+        if resume:
+            self._open_stream()
+            if self._stream is not None:
+                self._stream.start()
+            self._timer.start()
+            update_state(self.btnPlay, "state", "pressed")
+
     def handle_seek(self, position):
         if self._sr > 0:
-            target_frame = int((position / 1000.0) * self._sr)
-            self._current_frame = min(target_frame, self._total_frames)
+            target_frame = max(
+                0,
+                min(int((position / 1000.0) * self._sr), self._total_frames),
+            )
+            with self._position_lock:
+                self._current_frame = target_frame
+            self.update_time_label(position, self._duration_ms)
 
     def set_volume(self, volume):
         self._volume = volume / 100.0
@@ -293,6 +339,7 @@ class AudioPlayer(QWidget):
                 pass
             self._stream = None
         self._is_playing = False
+        self._resume_after_seek = False
         self._channels = 1
         self.sldProgress.setValue(0)
         self.lblTime.setText("00:00 / 00:00")

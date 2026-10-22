@@ -6,6 +6,7 @@ The heavy lifting lives elsewhere:
     bin.pipeline  - features, retrieval, conversion, realtime engine (sample-rate agnostic)
     bin.training  - train step / dataset / loader
     bin.config    - every constant (paths, sample-rate profiles, DSP, realtime, index, training)
+    lib.audio.models - all RVC v2 architecture, deep learning, etc.
     lib.audio.dsp - all DSP / filter building blocks
     lib.audio.audio_io - audio load / save (soundfile-backed, no FFmpeg dependency)
 """
@@ -38,7 +39,7 @@ from bin.log import get_logger
 from bin.pipeline import IndexBank, Pipeline, RealtimeEngine, load_index_bank
 from bin.training import (RVCDataset, TrainStep, resolve_amp_dtype, create_dataloader,
                           seed_everything, split_names,synthesize, validate, 
-                          configure_cpu_runtime, compile_cpu_training_models)
+                          configure_cpu_runtime, compile_training_models)
 from lib.audio.audio_io import load_audio, save_audio, audio_info
 from lib.audio.models import SynthesizerTrnMs768NSFsid
 from lib.audio.slicer import Slicer
@@ -150,7 +151,12 @@ class Modules:
     def __init__(self, cfg: AppConfig):
         self.cfg = cfg
         self.paths = cfg.paths
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         self.is_half = self.device == "cuda"
 
         self.pipeline = Pipeline(cfg, self.device, self.is_half)
@@ -201,8 +207,8 @@ class Modules:
                 return self._build_generator(path, strip_weight_norm=False)
 
         net_g = net_g.eval()
-        net_g = net_g.compile_for_inference()
-        return ((net_g.half() if self.is_half else net_g.float()).to(self.device), sr, f"{cpt.get('version', 'v2')}: {cpt.get('info', '')}")
+        net_g = (net_g.half() if self.is_half else net_g.float()).to(self.device)
+        return net_g, sr, f"{cpt.get('version', 'v2')}: {cpt.get('info', '')}"
 
     def load_model(self, gen_path, idx_path, progress_callback=None):
         say = lambda i, msg: progress_callback(i, 5, msg) if progress_callback else None
@@ -305,13 +311,13 @@ class Modules:
                 protect=protect, index_rate=index_rate, bank=self.bank, progress_callback=progress_callback,
                 stop_check=stop_check)
 
-            say(2, "Final resampling...")
-            out = self.pipeline.resample(out.cpu(), tgt_sr, final_sr)
-
             if keep_stereo and is_stereo:
-                say(3, "Adding stereo effects...")
-                out = stereo_diffusion(out, final_sr)
+                say(2, "Adding stereo effects...")
+                out = stereo_diffusion(out, tgt_sr)
 
+            say(3, "Final resampling...")
+            out = self.pipeline.resample(out.cpu(), tgt_sr, final_sr)
+            
             if do_instruments:
                 say(4, "Stitching instruments...")
                 ip = audio_path.replace("Vocals", "Instrumental")
@@ -463,9 +469,14 @@ class Modules:
                 self.pipeline.unload_models()
         _free_gpu()
 
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        if dev.type != "cuda":
-            log.warning("No GPU found: training on the CPU will be marginally slower!")
+        if torch.cuda.is_available():
+            dev = torch.device("cuda")
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            dev = torch.device("mps")
+        else:
+            dev = torch.device("cpu")
+        if dev.type == "cpu":
+            log.warning("No GPU found: training on the CPU will be slow!")
 
         tcfg = self.cfg.train
         main_dir = self.paths.training_run(mo_name)
@@ -538,7 +549,7 @@ class Modules:
             if dev.type == "cpu":
                 configure_cpu_runtime(tcfg)
 
-            net_g, net_d = compile_cpu_training_models(net_g, net_d, tcfg, dev)
+            net_g, net_d = compile_training_models(net_g, net_d, tcfg, dev)
 
             train_names, val_names = split_names(main_dir, tcfg.val_fraction, tcfg.val_max, tcfg.seed)
 
@@ -590,30 +601,42 @@ class Modules:
 
                     header, body = (rows[0], rows[1:]) if rows else ([], [])
 
+                    # Earlier versions wrote the zero-based loop index (0, 1, 2...).
+                    # Migrate those labels to completed-epoch labels (1, 2, 3...).
+                    legacy_zero_based = any(
+                        row and row[0].lstrip("-").isdigit() and int(row[0]) == 0
+                        for row in body
+                    )
+                    if legacy_zero_based:
+                        body = [
+                            [str(int(row[0]) + 1), *row[1:]]
+                            if row and row[0].lstrip("-").isdigit()
+                            else row
+                            for row in body
+                        ]
+                        log.info("Migrated legacy zero-based epoch labels in %s", csv_path.name)
+
                     if completed > 0:
                         kept = [
-                            r for r in body
-                            if r
-                            and r[0].lstrip("-").isdigit()
-                            and int(r[0]) < completed
+                            row for row in body
+                            if row
+                            and row[0].isdigit()
+                            and 1 <= int(row[0]) <= completed
                         ]
-
-                        if len(kept) != len(body):
-                            log.info(
-                                "Trimming %d stale row(s) from %s "
-                                "(resuming at epoch %d)",
-                                len(body) - len(kept),
-                                csv_path.name,
-                                completed,
-                            )
-
-                            with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                                w = csv.writer(f)
-                                if header:
-                                    w.writerow(header)
-                                w.writerows(kept)
                     else:
                         kept = body
+
+                    if legacy_zero_based or len(kept) != len(body):
+                        if len(kept) != len(body):
+                            log.info(
+                                "Trimming %d stale row(s) from %s (checkpoint has %d completed epochs)",
+                                len(body) - len(kept), csv_path.name, completed,
+                            )
+                        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                            w = csv.writer(f)
+                            if header:
+                                w.writerow(header)
+                            w.writerows(kept)
 
                     if chart is not None:
                         a = tcfg.chart_ema
@@ -642,26 +665,16 @@ class Modules:
 
                             for k, v in raw_vals.items():
                                 ema[k] = (
-                                    v
-                                    if k not in ema or tcfg.chart_ema <= 0
-                                    else tcfg.chart_ema * ema[k]
-                                    + (1 - tcfg.chart_ema) * v
+                                    v if k not in ema or tcfg.chart_ema <= 0
+                                    else tcfg.chart_ema * ema[k] + (1 - tcfg.chart_ema) * v
                                 )
 
                             chart.update_plot(
-                                ep,
-                                ema["g"],
-                                ema["d"],
-                                ema["mel"],
-                                ema["fm"],
-                                ema["kl"],
-                                v_mel * 20,
+                                ep, ema["g"], ema["d"], ema["mel"], ema["fm"], ema["kl"], v_mel * 20
                             )
-
             else:
                 # This is a genuinely new training run.
                 kept = []
-
                 if csv_path.exists():
                     csv_path.unlink()
 
@@ -676,6 +689,10 @@ class Modules:
             say(f"{steps_per_epoch} batches per epoch = {steps_per_epoch // tcfg.grad_acc} optimizer steps")
 
             for epoch in range(completed, epochs):
+                # Use this one-based value for every user-facing/saved epoch label.
+                epoch_number = epoch + 1
+
+                # Keep the internal loop index zero-based for schedule and RNG behavior.
                 lr = tcfg.lr * tcfg.lr_decay ** epoch
 
                 for opt in (opt_g, opt_d):
@@ -692,8 +709,13 @@ class Modules:
 
                 for batch_data in loader:
                     if stop_check and stop_check():
+                        # Preserve the original immediate mid-epoch save behavior.
+                        # `completed` is the last fully completed/displayed epoch.
                         say(f"Stopping after {completed} completed epoch(s)...")
-                        self._save(main_dir, completed, net_g, net_d, opt_g, opt_d, f"ckpt_{completed}", steps=step_engine.opt_steps)
+                        self._save(
+                            main_dir, completed, net_g, net_d, opt_g, opt_d,
+                            f"ckpt_{completed}", steps=step_engine.opt_steps,
+                        )
                         say("Finished model training!")
                         return
 
@@ -703,7 +725,7 @@ class Modules:
                     n_batches += 1
 
                 avg = dict(zip(_KEYS, (acc / max(n_batches, 1)).tolist()))
-                completed = epoch + 1
+                completed = epoch_number
                 val_mel = validate(step_engine, net_g, val_ds) if val_ds else float("nan")
 
                 a = tcfg.chart_ema
@@ -711,7 +733,7 @@ class Modules:
                     ema[k] = v if k not in ema or a <= 0 else a * ema[k] + (1 - a) * v
 
                 writer.writerow([
-                    epoch,
+                    epoch_number,
                     step_engine.opt_steps,
                     f"{lr:.6e}",
                     avg["g"],
@@ -724,29 +746,44 @@ class Modules:
                 csv_file.flush()
 
                 msg = (
-                    f"Epoch: {epoch:>3} | G: {avg['g']:7.3f} | D: {avg['d']:6.3f} | "
+                    f"Epoch {epoch_number}: G: {avg['g']:7.3f} | D: {avg['d']:6.3f} | "
                     f"Mel: {avg['mel'] / tcfg.c_mel:6.3f} | FM: {avg['fm']:6.3f} | "
                     f"KL: {avg['kl']:6.4f} | Val: {val_mel:6.3f} | Learning Rate {lr:.2e}"
                 )
 
                 log.info(msg)
 
-                if progress_callback: progress_callback(epoch, epochs, msg)
-                chart.update_plot(epoch, ema["g"], ema["d"], ema["mel"], ema["fm"], ema["kl"], val_mel * 20)
+                if progress_callback:
+                    progress_callback(epoch_number, epochs, msg)
+                chart.update_plot(
+                    epoch_number, ema["g"], ema["d"], ema["mel"], ema["fm"], ema["kl"], val_mel * 20
+                )
 
                 if frequency > 0 and completed % frequency == 0 and completed < epochs:
-                    if progress_callback: progress_callback(epoch, epochs, f"Saving checkpoint at epoch {completed}...")
+                    if progress_callback:
+                        progress_callback(epoch_number, epochs, f"Saving checkpoint at epoch {completed}...")
                     self._save_preview(completed, profile, step_engine, net_g, preview_dir, preview_ds, preview_frames)
-                    self._save(main_dir, completed, net_g, net_d, opt_g, opt_d, f"ckpt_{completed}", steps=step_engine.opt_steps)
+                    self._save(
+                        main_dir, completed, net_g, net_d, opt_g, opt_d,
+                        f"ckpt_{completed}", steps=step_engine.opt_steps,
+                    )
 
                     wdir = main_dir / "weights"
                     wdir.mkdir(exist_ok=True)
-                    self._export_final(mo_name, net_g, profile, completed, dest=wdir / f"{mo_name}_e{completed}.pth")
+                    self._export_final(
+                        mo_name, net_g, profile, completed,
+                        dest=wdir / f"{mo_name}_e{completed}.pth",
+                    )
 
-            self._save_preview(epochs, profile, step_engine, net_g, preview_dir, preview_ds, preview_frames)
-            self._save(main_dir, epochs, net_g, net_d, opt_g, opt_d, f"ckpt_{epochs}", steps=step_engine.opt_steps)
-            final = self._export_final(mo_name, net_g, profile, epochs)
-            say(f"Saved final model to: {final}")
+            # `completed` is authoritative. On a normal run it equals `epochs`;
+            # using it here also avoids relabelling if no loop iterations ran.
+            self._save_preview(completed, profile, step_engine, net_g, preview_dir, preview_ds, preview_frames)
+            self._save(
+                main_dir, completed, net_g, net_d, opt_g, opt_d,
+                f"ckpt_{completed}", steps=step_engine.opt_steps,
+            )
+            final = self._export_final(mo_name, net_g, profile, completed)
+            say(f"Saved final model to: {final}") 
 
         except Exception as exc:
             log.exception("Training failed")
@@ -779,8 +816,7 @@ class Modules:
             net_g.train()
 
     def _save(self, path: Path, epoch, net_g, net_d, opt_g, opt_d, name, steps: int = 0):
-        """`epoch` = number of COMPLETED epochs (training resumes at that index). Written
-        atomically so an interrupted save cannot leave a corrupt checkpoint."""
+        """`epoch` is the number of completed epochs; resume starts at that index."""
         target = Path(path) / f"{name}.pth"
         tmp = target.with_suffix(".tmp")
         torch.save({"epoch": epoch, "steps": steps, "net_g": net_g.state_dict(), "net_d": net_d.state_dict(),

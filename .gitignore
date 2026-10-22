@@ -1,3 +1,4 @@
+/.vs
 /.vscode
 /assets/pretrained_old
 /assets/pretrained_v2
@@ -8,4 +9,5 @@
 /logs
 /runtime
 /runtime_linux
+/torch_compile_debug
 /user

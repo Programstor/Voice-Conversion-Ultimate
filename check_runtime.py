@@ -29,13 +29,19 @@ def check(name, fn, hint=""):
 def torch_info():
     import torch
 
-    text = f"{torch.__version__} (built for CUDA {torch.version.cuda})"
     if torch.cuda.is_available():
+        text = f"{torch.__version__} (built for CUDA {torch.version.cuda})"
         major, minor = torch.cuda.get_device_capability(0)
         x = torch.randn(512, 512, device="cuda")
         float((x @ x).sum().item())            # real kernel launch, not just a flag
         text += f" | GPU: {torch.cuda.get_device_name(0)} (sm_{major}{minor}), kernel launch OK"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        text = f"{torch.__version__} (macOS build)"
+        x = torch.randn(512, 512, device="mps")
+        float((x @ x).sum().item())            # real kernel launch on MPS
+        text += " | MPS kernel launch OK"
     else:
+        text = f"{torch.__version__}"
         text += " | no usable GPU - CPU mode"
     return text
 
@@ -63,13 +69,20 @@ def sndfile_info():
     return f"libsndfile {sf.__libsndfile_version__}"
 
 
+def faiss_info():
+    import faiss
+    v = getattr(faiss, "__version__", None) or getattr(faiss, "version", "import OK")
+    gpu = hasattr(faiss, "StandardGpuResources")
+    return f"{v} ({'gpu' if gpu else 'cpu'})"
+
+
 def main():
     print(f"Python {platform.python_version()} on {platform.platform()}")
     check("torch", torch_info)
     check("torchaudio", version_of("torchaudio"))
     check("transformers", version_of("transformers"))
     check("torchfcpe", version_of("torchfcpe"))
-    check("faiss", version_of("faiss"))
+    check("faiss", faiss_info)
     check("numpy", version_of("numpy"))
     check("scipy", version_of("scipy"))
     check("librosa", version_of("librosa"))

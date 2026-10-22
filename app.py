@@ -32,10 +32,7 @@ class VCU_GUI(QMainWindow):
         self.task_manager = TaskManager(cfg)
         self.modules = Modules(cfg)
         self.setWindowTitle("Voice Conversion - Ultimate")
-        self.resize(1200, 600)
-        self.showMaximized()
-        self.raise_()
-        self.activateWindow()
+        self.resize(1280, 720)
 
         # Layout
         wdgCenter = QWidget()
@@ -56,11 +53,20 @@ class VCU_GUI(QMainWindow):
         self.lblStatus.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.layMain.addWidget(self.lblStatus)
 
+        # Hidden sentinel used as the task lock for auto-triggered model loads.
+        # Using btnUnload for this caused a race: clicking Unload while a load
+        # was in flight (or vice versa) would find the button already busy.
+        self._btnLoadSentinel = QPushButton("Load Voice")
+
         # Postprocess
         self.models = []
         self.indices = []
         self.refresh_voice_models()
         self.refresh_audio_devices()
+
+        self.showMaximized()
+        self.raise_()
+        self.activateWindow()
 
     @staticmethod
     def _repopulate(combo: QComboBox, items, keep=None):
@@ -153,7 +159,7 @@ class VCU_GUI(QMainWindow):
         self._repopulate(self.qboxFeatures, items)
 
         self.task_manager.run_task(
-            self.btnUnload, self.lblStatus,
+            self._btnLoadSentinel, self.lblStatus,
             self.modules.load_model,
             ### Arguments ###
             gen_path=self.qboxVoice.currentText(),
@@ -248,7 +254,7 @@ class VCU_GUI(QMainWindow):
                 vol_scale=sldVolume.value(),
                 protect=sldProtect.value(),
                 index_rate=sldRate.value(),
-                res_sr=int(qboxResample.currentText()),
+                res_sr=int(qboxResample.currentText()) if qboxResample.currentText().strip().lstrip('-').isdigit() else 0,
                 do_instruments=cbxStitch.isChecked(),
                 keep_stereo=cbxStereo.isChecked()
             )

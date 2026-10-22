@@ -66,15 +66,15 @@ def rand_slice_segments(x, x_lengths=None, segment_size=4):
     ret = slice_segments(x, ids_str, segment_size)
     return ret, ids_str
 
-def fused_add_tanh_sigmoid_multiply(input_a: torch.Tensor, input_b: torch.Tensor, n_channels: int) -> torch.Tensor:
-    # Plain Python function -- @torch.jit.script was removed because TorchInductor
-    # (torch.compile backend="inductor") cannot trace through a TorchScript boundary.
-    # The decorator was never buying anything: WN.forward is not itself scripted, so
-    # there was no cross-function inlining happening. Inlining here is equivalent.
+# @torch.jit.script removed: Inductor cannot lower across the script boundary.
+# n_channels is now a plain Python int (passed directly from self._n_channels),
+# so Dynamo sees a compile-time constant — no tensor, no .item(), no graph break.
+def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels: int):
     in_act = input_a + input_b
     t_act = torch.tanh(in_act[:, :n_channels, :])
     s_act = torch.sigmoid(in_act[:, n_channels:, :])
-    return t_act * s_act
+    acts = t_act * s_act
+    return acts
 
 class Flip(nn.Module):
     # torch.jit.script() Compiled functions \
@@ -993,8 +993,9 @@ class WN(torch.nn.Module):
         self.res_skip_layers = torch.nn.ModuleList()
         self.drop = nn.Dropout(float(p_dropout))
 
-        # _n_channels is a plain Python int passed directly to fused_add_tanh_sigmoid_multiply,
-        # which now accepts int instead of a tensor.  No allocation, no device sync.
+        # Plain Python int: fused_add_tanh_sigmoid_multiply takes it directly so
+        # Dynamo sees a compile-time constant with no tensor allocation, no .item()
+        # call, and no graph break.
         self._n_channels = hidden_channels
 
         if gin_channels != 0:
@@ -1572,10 +1573,9 @@ class SynthesizerTrnMs768NSFsid(nn.Module):
 
     @torch.jit.unused
     def forward(
-        self, phone, phone_lengths, pitch, pitchf, y, y_lengths, ds
-    ):  # 这里ds是id，[bs,1]
-        # print(1,pitch.shape)#[bs,t]
-        g = self.emb_g(ds).unsqueeze(-1)  # [b, 256, 1]##1是t，广播的
+    self, phone, phone_lengths, pitch, pitchf, y, y_lengths, ds
+    ):  # Here, ds is the speaker ID, shape [batch_size, 1]
+        g = self.emb_g(ds).unsqueeze(-1)  # [batch_size, 256, 1]; broadcasts across time
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
@@ -1626,56 +1626,7 @@ class SynthesizerTrnMs768NSFsid(nn.Module):
         # print("GeneratorNSF")
         o = self.dec(z * x_mask, nsff0, g=g)
         return o, x_mask, (z, z_p, m_p, logs_p)
-    
-    # Changed
-    def compile_for_inference(
-        self,
-        mode: str = "reduce-overhead",   # "default" | "reduce-overhead" | "max-autotune"
-        **kwargs,
-    ) -> "SynthesizerTrnMs768NSFsid":
-        """
-        Wrap the two heaviest inference submodules with torch.compile.
 
-        Usage (after loading weights):
-            model = SynthesizerTrnMs768NSFsid(...)
-            model.load_state_dict(ckpt)
-            model.eval()
-            model.compile_for_inference()        # optionally: mode="max-autotune"
-
-        Notes:
-            - On CUDA/XPU, backend="inductor" is used (Inductor performs kernel
-              fusion; "reduce-overhead" mode additionally captures CUDA graphs to
-              cut dispatch overhead).  On CPU, backend="inductor" with
-              mode="default" is used instead (cudagraphs is CUDA-only, and
-              "reduce-overhead" mode is not meaningful on CPU).
-            - First call will trigger a tracing/compilation step; subsequent calls
-              are fast.
-            - enc_p is left uncompiled: its relative-attention graph changes shape
-              with sequence length, which would force retracing on every call.
-            - CAUTION: call this only after load_state_dict(), as the docstring's own
-              usage example shows. torch.compile wraps self.flow/self.dec in an
-              OptimizedModule; if you call state_dict() afterward (to save a
-              checkpoint), those keys come back prefixed with "_orig_mod." and will
-              not load into an uncompiled model of this same class. Never save a
-              checkpoint from a model that has had this called on it.
-        """
-        # Detect device from the first parameter (set after load_state_dict).
-        device = next(self.parameters()).device
-        on_accelerator = device.type in ("cuda", "xpu")
-
-        compile_kwargs: dict = dict(kwargs)
-        if on_accelerator:
-            compile_kwargs.setdefault("backend", "inductor")
-            compile_kwargs.setdefault("mode", mode)
-        else:
-            # inductor works on CPU; cudagraphs is CUDA-only and would crash here.
-            # "reduce-overhead" implies cudagraphs and is also unsupported on CPU.
-            compile_kwargs.setdefault("backend", "inductor")
-            compile_kwargs.setdefault("mode", "default")
-
-        self.flow = torch.compile(self.flow, **compile_kwargs)
-        self.dec  = torch.compile(self.dec,  **compile_kwargs)
-        return self
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):

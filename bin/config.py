@@ -49,7 +49,7 @@ class TaskCancelled(Exception):
 # Constants shared by every module
 # --------------------------------------------------------------------------- #
 FRAME_MS = 10                    # one F0 / mel frame = 10 ms (100 fps) at any model sample rate
-FEAT_SR = 16000                 # ContentVec / FCPE input rate
+FEAT_SR = 16000                  # ContentVec / FCPE input rate
 FEAT_HOP = FEAT_SR // 100        # 160 samples per frame at 16 kHz
 HUBERT_STRIDE = 320              # 20 ms per ContentVec frame
 HUBERT_RECEPTIVE = 400           # samples a ContentVec frame needs
@@ -212,28 +212,38 @@ def get_profile(sr: int) -> SRProfile:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class DSPConfig:
+    # Lowest pitch the F0 extractor will detect                                  (50.0 Hz)
     f0_min: float = 50.0
+    # Highest pitch the F0 extractor will detect                                 (1100.0 Hz)
     f0_max: float = 1100.0
+    # Quantisation steps in the pitch embedding lookup table                     (256)
     f0_bins: int = 256
+    # Median filter half-width over F0 frames; removes single-frame spikes       (5)
     median_window: int = 5
+    # Gaussian/box smooth half-width applied after median; rounds pitch curves   (3)
     smooth_window: int = 3
+    # High-pass cutoff below which mic rumble / DC is removed before features    (48.0 Hz)
     highpass_hz: float = 48.0
     # Offline noise gate: a 10 ms frame is "active" when its peak exceeds gate_db; a frame is
     # kept when >= gate_density of the surrounding gate_min_ms window is active.
+    # RMS level a frame must reach to be considered speech, not silence          (-35.0 dB)
     gate_db: float = -35.0
+    # Window over which gate_density is measured                                 (60 ms)
     gate_min_ms: int = 60
+    # Fraction of frames in that window that must be active to keep the frame    (0.7)
     gate_density: float = 0.7
-    # (center Hz, gain dB, Q): de-box, presence, air
+    # Parametric EQ applied to output: (center Hz, gain dB, Q) — de-box, presence, air
+    #   350 Hz / -2.5 dB removes boxy resonance
+    #   3500 Hz / +1.5 dB adds presence and articulation
+    #   8000 Hz / +3.0 dB adds air and openness
     eq_bands: tuple = ((350.0, -2.5, 0.7), (3500.0, 1.5, 1.0), (8000.0, 3.0, 0.707))
+    # Low-pass cutoff; clamped to 0.45 × sr at runtime to stay below Nyquist    (14500.0 Hz)
     lowpass_hz: float = 14500.0
+    # EMA coefficient for RMS envelope follower (higher = slower response)       (0.2)
     rms_smoothing: float = 0.2
+    # Maximum gain the RMS normaliser can apply before it clips instead of boosts (3.0 ×)
     max_rms_gain: float = 3.0
-    # Air shelf: gentle high-frequency boost to restore presence the model rolls off.
-    # Set air_gain_db = 0 to disable entirely.
-    air_hz: float = 12000.0   # shelf centre frequency
-    air_gain_db: float = 4.0   # boost in dB (3 dB is subtle; 6 dB is noticeable)
-    air_q: float = 0.707       # Q of the peaking section used as a shelf approximation
-    # Offline: real audio taken from before each slice as ContentVec warm-up (not output)
+    # Real audio prepended to each offline slice so ContentVec has warm-up context (100 ms)
     offline_context_ms: int = 100
 
     def eq_for(self, sr: int) -> tuple:
@@ -250,10 +260,15 @@ class DSPConfig:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class InferenceConfig:
-    f0_up_key: int = 0         # transpose semitone integer
-    vol_scale: float = 0.25    # rms envelope scaling to match original volume
-    protect: float = 0.33      # preserve breath and voiceless segments
-    idx_rate: float = 0.75     # model index matching at inference
+    # Pitch transpose in semitones; 0 = no shift, +12 = one octave up            (0)
+    f0_up_key: int = 0
+    # RMS envelope scaling applied to the output to match the source volume       (0.25)
+    vol_scale: float = 0.25
+    # How much of the original unvoiced signal (breath, fricatives) is kept;
+    # 0 = replace everything, 1 = keep everything unvoiced                        (0.33)
+    protect: float = 0.33
+    # Blend ratio between model output (0.0) and nearest-neighbour index match (1.0) (0.75)
+    idx_rate: float = 0.75
 
 
 # --------------------------------------------------------------------------- #
@@ -261,17 +276,29 @@ class InferenceConfig:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class RealtimeConfig:
-    block_ms: int = 500        # audio converted per step (main latency knob)
-    extra_ms: int = 100        # left context for ContentVec warm-up (not played)
-    crossfade_ms: int = 40     # SOLA blend zone (adds directly to latency)
-    search_ms: int = 10        # SOLA phase search range
-    gate_db: float = -35.0     # block is silent when no 10 ms frame reaches this RMS level
-    hangover_ms: int = 150     # keep converting after the signal drops below the gate
-    stream_sr: int = 48000    # preferred stream sample rate (must be a multiple of 100)
-    device_block_ms: int = 20  # PortAudio callback size; the worker accumulates whole blocks
-    prebuffer_ms: int = 30     # silence queued before the first block: margin against inference jitter
-    max_backlog_blocks: int = 2  # drop input (and resync) when the worker falls this far behind
-    latency: str = "low"       # PortAudio latency hint
+    # Audio converted per inference step; the dominant latency term              (500 ms)
+    block_ms: int = 500
+    # Left-context prepended to each block for ContentVec warm-up; not played    (100 ms)
+    extra_ms: int = 100
+    # SOLA blend zone between consecutive blocks; adds directly to latency       (40 ms)
+    crossfade_ms: int = 40
+    # SOLA phase-alignment search range around the crossfade boundary            (10 ms)
+    search_ms: int = 10
+    # A whole block is skipped when no 10 ms frame in it exceeds this RMS level  (-35.0 dB)
+    gate_db: float = -35.0
+    # Conversion continues this long after the signal drops below the gate       (150 ms)
+    hangover_ms: int = 150
+    # Preferred PortAudio stream rate; must be a multiple of 100                 (48000 Hz)
+    stream_sr: int = 48000
+    # PortAudio callback size; the realtime worker accumulates whole blocks       (20 ms)
+    device_block_ms: int = 20
+    # Silence pre-queued before the first block to absorb first-inference jitter  (30 ms)
+    prebuffer_ms: int = 30
+    # Input blocks queued before the worker drops them and resyncs               (2)
+    max_backlog_blocks: int = 2
+    # PortAudio suggested latency hint: "low", "high", or a float in seconds     ("low")
+    latency: str = "low"
+    # How often the realtime worker logs its throughput stats                    (5.0 s)
     report_every_s: float = 5.0
 
 
@@ -350,11 +377,17 @@ class RealtimeGeometry:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class IndexConfig:
-    max_vectors: int = 10000        # index built by "Train Index" is reduced (k-means) to this size
-    kmeans_train_max: int = 100000  # frames sampled from the dataset to fit the k-means
+    # Built index is reduced to this many vectors via k-means to cap memory      (10000)
+    max_vectors: int = 10000
+    # Frames sampled from the dataset to train the k-means quantiser             (100000)
+    kmeans_train_max: int = 100000
+    # k-means Lloyd iterations; more = tighter clusters, slower build            (10)
     kmeans_iters: int = 10
-    max_bank: int = 100000           # older/larger indices are randomly subsampled to this at load
-    top_k: int = 8                   # neighbours blended per frame
+    # Indices larger than this are randomly subsampled when loaded at inference  (100000)
+    max_bank: int = 100000
+    # Nearest neighbours blended into each output frame during index retrieval   (8)
+    top_k: int = 8
+    # Random seed for k-means and subsampling; fix for reproducible index builds (1234)
     seed: int = 1234
 
 
@@ -363,34 +396,77 @@ class IndexConfig:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class TrainConfig:
+    # Peak learning rate for both G and D Adam optimisers                        (1e-4)
     lr: float = 1e-4
-    lr_decay: float = 0.999875     # per epoch, as in RVC: lr = lr * decay ** epoch
+    # Multiplicative LR decay applied once per epoch: lr × decay^epoch          (0.999875)
+    lr_decay: float = 0.999875
+    # Adam β₁ (gradient EMA) and β₂ (squared-gradient EMA)                     ((0.8, 0.99))
     betas: tuple = (0.8, 0.99)
+    # Adam ε; prevents division by zero in the adaptive step                    (1e-9)
     eps: float = 1e-9
+    # Gradient accumulation steps; effective batch = batches × grad_acc          (4)
     grad_acc: int = 4
+    # Weight of the mel-spectrogram reconstruction loss                          (45.0)
     c_mel: float = 45.0
-    c_fm: float = 2.0              # RVC weights the feature-matching loss x2
-    c_kl: float = 1.0              
-    num_workers: int = 4           # subprocesses for batch data i/o
-    amp: str = "fp16"              # "bf16" (no grad scaler needed), "fp16" (uses GradScaler) or "off"
-    seed: int = 1234               # each epoch re-seeds with seed + epoch, so resumed runs match
-    cache_specs: bool = True       # keep STFT magnitudes on disk (float16) instead of recomputing per clip
-    val_fraction: float = 0.05     # clips held out to measure a mel error that is not trained on
+    # Weight of the feature-matching (discriminator intermediate layer) loss     (2.0)
+    c_fm: float = 2.0
+    # Weight of the KL-divergence loss from the posterior encoder                (1.0)
+    c_kl: float = 1.0
+    # DataLoader worker subprocesses for parallel audio loading                  (4)
+    num_workers: int = 4
+    # Mixed precision mode:
+    #   "fp16"  — half precision, uses GradScaler to prevent underflow (GPU only)
+    #   "bf16"  — bfloat16, no GradScaler needed; requires Ampere GPU or newer
+    #   "off"   — full fp32 everywhere; always used on CPU automatically         ("fp16")
+    amp: str = "fp16"
+    # Base RNG seed; each epoch uses seed + epoch so resumed runs reproduce exactly (1234)
+    seed: int = 1234
+    # Cache STFT spectrograms to disk as float16 to avoid recomputing them       (True)
+    cache_specs: bool = True
+    # Fraction of clips held out as a validation set (mel loss only, not trained on) (0.05)
+    val_fraction: float = 0.05
+    # Maximum number of validation clips regardless of val_fraction              (16)
     val_max: int = 16
+    # Length of the audio preview clip rendered at each checkpoint export        (3.0 s)
     preview_seconds: float = 3.0
-    chart_ema: float = 0.6         # smoothing of the chart only; the CSV keeps raw values (0 = off)
+    # EMA smoothing for the live loss chart (0 = raw values); CSV always stores raw (0.6)
+    chart_ema: float = 0.6
+    # Abort before training if the dataset GPU cache would exceed available VRAM (True)
     check_vram: bool = True
+    # Abort before training if the dataset CPU cache would exceed available RAM  (True)
     check_ram: bool = True
-    vram_headroom_mb: int = 512    # VRAM kept free after the dataset GPU cache (for the batch forward+backward pass)
-    ram_headroom_mb: int = 4096    # RAM kept free after the dataset CPU cache (if no GPU or not enough VRAM)
+    # VRAM reserved for the forward+backward pass after dataset cache            (512 MiB)
+    vram_headroom_mb: int = 512
+    # RAM reserved for the OS and app after dataset cache                        (4096 MiB)
+    ram_headroom_mb: int = 4096
+    # ! VRAM cost estimate per sample×frame for the activation headroom check    (0.75 MiB)
     vram_activation_mib_per_sample_frame: float = 0.75
+    # ! Assumed total parameter count when the model cannot be inspected for VRAM sizing (120_000_000)
     vram_fallback_model_params: int = 120_000_000
-    cpu_threads: int = 4
+    # CPU intra-op thread count; 0 = auto-detect physical cores                  (0)
+    cpu_threads: int = 0
+    # Compile the model with torch.compile on CPU training runs                  (True)
     cpu_compile: bool = True
-    cpu_compile_mode: str = "max-autotune"
+    # torch.compile mode for CPU training:
+    #   "default"          — balanced; picks safe kernel strategies, moderate compile time
+    #   "reduce-overhead"  — one compile per unique tensor shape, no kernel benchmarking;
+    #                        best choice for CPU: same runtime speed as max-autotune but
+    #                        compile time drops from ~30 min to ~3-5 min because it does
+    #                        not spawn hundreds of cl.exe processes to benchmark kernel variants
+    #   "max-autotune"     — benchmarks every kernel shape to find the fastest variant;
+    #                        worthwhile on CUDA (picks among cuBLAS, Triton, etc.) but on
+    #                        CPU the only compiler is cl.exe, so the benchmark is just wasted
+    #                        process-spawn overhead with no runtime benefit
+    #   "max-autotune-no-cudagraphs" — manually same as max-autotune on CPU; cudagraphs are
+    #                                  a CUDA-only feature so the "no-cudagraphs" qualifier
+    #                                  changes nothing when running on CPU
+    cpu_compile_mode: str = "reduce-overhead"
+    # Batch size per gradient-accumulation step (actual batch = batches × grad_acc) (4)
     batches: int = 4
+    # Save a checkpoint and export a .pth every this many epochs                (10)
     frequency: int = 10
-    epochs:int = 50
+    # Total epochs to train before stopping                                      (50)
+    epochs: int = 50
 
 
 # --------------------------------------------------------------------------- #
@@ -398,11 +474,16 @@ class TrainConfig:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class UiConfig:
-    overlay_color: tuple = (119, 185, 0, 100)   # RGBA tint of the button progress/pulse overlay
-    progress_anim_ms: int = 450                 # progress-bar fill/unfill animation
-    pulse_period_ms: int = 800                  # one half-cycle of the realtime "live" pulse
-    pulse_alpha_range: tuple = (60, 160)        # alpha at the dim / bright ends of the pulse
-    busy_message_ms: int = 3000                 # how long "Busy with X" shows on a blocked button
+    # RGBA tint drawn over a task button while it is running or pulsing          ((119, 185, 0, 100))
+    overlay_color: tuple = (119, 185, 0, 100)
+    # Duration of the progress bar fill / unfill animation                       (450 ms)
+    progress_anim_ms: int = 450
+    # Half-cycle period of the realtime "live" pulse animation                   (800 ms)
+    pulse_period_ms: int = 800
+    # Alpha at the dim and bright ends of the pulse cycle                        ((60, 160))
+    pulse_alpha_range: tuple = (60, 160)
+    # How long "Busy with X" stays visible on a button blocked by another task   (3000 ms)
+    busy_message_ms: int = 3000
 
 
 # --------------------------------------------------------------------------- #
